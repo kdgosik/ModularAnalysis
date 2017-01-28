@@ -123,13 +123,11 @@ ControlChartServer <- function(input, output, session, data, var1, var2) {
     
     inpt_changepoint <- input$changepoint
     
-    dat <- data()
-    
     # dat <- dat %>%
     #   filter(Date >= inpt_range[1] & Date <= inpt_range[2])
     
     
-    qcc_out <- qcc_convert_df(data = as.data.frame(dat),
+    qcc_out <- qcc_convert_df(data = as.data.frame(data()),
                               data_col = var1,
                               type = "p",
                               size_col = var2,

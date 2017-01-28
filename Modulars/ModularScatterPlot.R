@@ -6,6 +6,7 @@ scatterUI <- function(id) {
   ns <- NS(id)
   
   list(
+    div(selectInput)
     div(sliderInput(ns("slider1"), label = "Limit points", min = 5, max = 32, value = 10)),
     div(style="display: inline-block; height:220px;", plotlyOutput(ns("plot1")))
   )

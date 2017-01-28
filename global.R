@@ -1,3 +1,7 @@
+# system2("docker", "cp '/data/projects/MICU_LOS/.' shiny:/srv/shiny-server/uniteventlos/")
+# system2('docker' , 'exec shiny chown -R :shiny /srv')
+# system2('docker' , 'exec shiny touch /srv/shiny-server/uniteventlos/restart.txt')
+
 ## Create Directory Structure #################################################################
 if( !dir.exists( paste0( getwd() , '/Data') ) ) {
   dir.create( paste0( getwd() , '/Data') )
@@ -12,22 +16,22 @@ if( !dir.exists( paste0( getwd() , '/input') ) ) {
 }
 
 
-#library(RPostgreSQL)
+library(RPostgreSQL)
 library(dplyr)
 library(tidyr)
 library(lubridate)
 library(plotly)
 library(dygraphs)
-library(quantmod)
 library(xts)
 library(zoo)
 library(magrittr)
 library(DT)
 library(visNetwork)
 library(shiny)
-rm(list=ls()); gc(reset = TRUE)
 
-# load modulars
+rm(list = ls()); gc(reset = TRUE)
+
+  # load modulars
 # move to make these dynamically loaded from user input
 source("Modulars/ModularCSVFileInput.R")
 source("Modulars/ModularDataView.R")
@@ -43,44 +47,87 @@ latest_file <- function( path = ".", file_name ) {
   fname
 }
 
-# datasets from all packages
 
-dat <- as.data.frame(data(package = .packages(all.available = TRUE))$results, stringsAsFactors = FALSE)
-nodes <- dat[, c(1,3)]
+## Code Space ###########################################
+
+pgsrc <- 
+  read.csv( 'creds.csv', colClasses = rep("character", 2)) %$%  
+  src_postgres(
+    host = 'datascience'
+    , dbname = 'dev'
+    , port = 5432
+    , user = username
+    , password = password
+    , options="-c search_path=public"
+  )
+
+
+tables_list <- dbListTables(pgsrc$con)
+
+
+
+nodes <- lapply(tables_list, function(tab){
+  
+  tryCatch({
+  data.frame(id = 1,
+             label = colnames(tbl(pgsrc, tab)),
+             group = tab,
+             title =  colnames(tbl(pgsrc, tab)))
+  }, error = function(e) NULL)
+  
+}) %>%
+  do.call(rbind,.)
+
+# dummy data for easy checking
+mtcars_nodes <- data.frame(id = 1,
+                           label = names(mtcars),
+                           group = "mtcars",
+                           title = names(mtcars))
+
+nodes <- rbind(mtcars_nodes, nodes)
+
+
+
+## Mortality Data to be put in Postgres later ######
+mort <- read.csv("Data/data.kpi.mortoe.2017.01.csv", stringsAsFactors = F)
+
+serv_cross_walk_idx <- which(mort$KPI.Name == "Division Description")
+month_idx <- which(mort$KPI.Name == "Calendar Year-Month Formatted")
+
+cfg.service.unit <- mort[(serv_cross_walk_idx + 1) : (month_idx - 1), ]
+colnames(cfg.service.unit) <- mort[serv_cross_walk_idx, ]
+cfg.service.unit <- cfg.service.unit[, 1 : 3]
+
+cfg.month <- mort[(month_idx + 1) : nrow(mort), ]
+colnames(cfg.month) <- mort[month_idx, ]
+cfg.month <- cfg.month[,1, drop = F]
+
+mort_summary <- mort[1 : (serv_cross_walk_idx - 1), ] %>%
+  mutate(Date = ymd_hms(KPI.Date, tz = "EST"), 
+         Date = floor_date(Date, unit = "month"), 
+         KPI.Numerator.SUM = as.numeric(KPI.Numerator.SUM)) %>%
+  group_by(Date) %>%
+  summarise(Numerator = sum(KPI.Numerator.SUM), Denominator = sum(KPI.Denominator.SUM))
+
+
+mort_nodes <- data.frame(id = 1,
+                           label = names(mort_summary),
+                           group = "mortality",
+                           title = names(mort_summary))
+
+nodes <- rbind(mort_nodes, nodes)
 nodes$id <- 1 : nrow(nodes)
-colnames(nodes) <- c("group", "label", "id")
-nodes <- nodes[,c(3, 2, 1)]
 
-grp <- unique(nodes$group)
-nodes_grp <- data.frame(id = (nrow(nodes) + 1) : (nrow(nodes) + length(grp)),
-                        label = grp,
-                        group = grp, stringsAsFactors = FALSE)
 
-edges <- merge(nodes, nodes_grp, by = "group")[,c(2,4)]
-colnames(edges) <- c("from", "to")
 
-nodes <- rbind(nodes, nodes_grp)
+  # All KPI reports only drill down to division/department not nurse unit
+kpi_list <- dir("Data", pattern  ="kpi", full.names = TRUE)
 
-stock <- read.csv("data.stock.symbols 2017-01-18 .csv", stringsAsFactors = FALSE)
-# stock <- fread("data.stock.symbols 2017-01-18 .csv")
-# 
-# 
-# stock[,.N, by = .(Symbol, Sector, Exchange)]
-# stock[,.N, by = .(Sector, Industry)]
-# 
-# 
-# sub <- sample(nrow(stock), 500)
-# stock_sub <- stock[sub, c(1, 8)]
-# stock_sub$id <- 1 : 500
-# colnames(stock_sub) <- c("label", "group", "id")
-# stock_sub <- stock_sub[,c(3, 1, 2)]
-# 
-# visNetwork(stock_sub, main = "Field Network") %>%
-#   visOptions(nodesIdSelection = TRUE) %>%
-#   visInteraction(dragNodes = TRUE,
-#                  dragView = TRUE,
-#                  zoomView = TRUE,
-#                  navigationButtons = TRUE,
-#                  keyboard = TRUE) %>%
-#   visClusteringByGroup(groups = unique(stock_sub$group)) %>%
-#   visLegend()
+avglos <- read.csv(kpi_list[1], stringsAsFactors = F)
+end_idx <- which(avglos[["KPI.Name"]] == "Division Description")
+avglos <- avglos[1 : (end_idx - 1), ]
+
+
+avglos %>%
+  group_by()
+
